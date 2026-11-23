@@ -39,18 +39,21 @@ It contains the documentation to package eSim for Ubuntu OS.
 
 ## Ubuntu 25.04, 25.10 and 26.04
 
-`install-eSim.sh` runs `install-eSim-scripts/install-eSim-25.04.sh` on Ubuntu
-25.04 and every newer release. That script uses the updated NGHDL installer in
-`install-eSim-scripts/nghdl/` (see its [README](install-eSim-scripts/nghdl/README.md)),
-so the official `eSim-2.5.zip` installs after replacing its `install-eSim.sh`
-and `install-eSim-scripts/` with the ones from this branch:
+On Ubuntu 25.04 and newer, `install-eSim.sh` runs
+`install-eSim-scripts/install-eSim-25.04.sh`. That script also uses the fixed
+NGHDL installer in `install-eSim-scripts/nghdl/`
+(see [its README](install-eSim-scripts/nghdl/README.md)).
+
+To install the official eSim-2.5.zip with these fixes, replace its
+`install-eSim.sh` and `install-eSim-scripts/` with the ones from this branch:
 
 ```bash
-unzip eSim-2.5.zip && cd eSim-2.5
+unzip eSim-2.5.zip
+cd eSim-2.5
 cp /path/to/this/branch/Ubuntu/install-eSim.sh .
 cp -r /path/to/this/branch/Ubuntu/install-eSim-scripts .
 ./install-eSim.sh --install
 ```
 
-Problems found and fixed: [REPORT-Ubuntu-25.04-and-above.md](REPORT-Ubuntu-25.04-and-above.md).
-Reproducible test setup (Docker + debootstrap): [testing/](testing/).
+- Problems found and fixed: [REPORT-Ubuntu-25.04-and-above.md](REPORT-Ubuntu-25.04-and-above.md)
+- Test scripts: [testing/](testing/)

@@ -1,261 +1,412 @@
-# eSim 2.5 on Ubuntu 25.04 and above: installation problems and fixes
+# Installing eSim 2.5 on Ubuntu 25.04 and newer: problems and fixes
 
-Screening Task 4 (eSim Semester Long Internship, Autumn 2026) – report date 23 November 2026.
+Screening Task 4 (eSim Upgradation), eSim Winter Internship 2026
+Author: Mahim Agarwal (GitHub: Mahim56207)
+Date: 23 November 2026
 
-**Result:** eSim-2.5 did not install on Ubuntu 25.04 at all: the downloadable
-zip rejects the release, and the `installers` branch script has a syntax error.
-After the 16 fixes below, the official eSim-2.5 package installs completely on
-Ubuntu 25.04, and installs on 25.10 and 26.04 LTS (with KiCad 9, see
-"Remaining issues"). eSim and NGHDL start, GHDL compiles and runs VHDL,
-ngspice simulates.
+## Contents
 
-## 1. Test environment
+1. [Summary](#1-summary)
+2. [Test setup](#2-test-setup)
+3. [List of problems](#3-list-of-problems)
+4. [Details of each problem and fix](#4-details-of-each-problem-and-fix)
+5. [Files changed](#5-files-changed)
+6. [Results after the fixes](#6-results-after-the-fixes)
+7. [Open points](#7-open-points)
+8. [How to repeat the tests](#8-how-to-repeat-the-tests)
+9. [References](#9-references)
 
-| Item | Value |
+## 1. Summary
+
+eSim 2.5 did not install on Ubuntu 25.04.
+
+- The eSim-2.5.zip from the website stops at once with
+  "Unsupported Ubuntu version: 25.04".
+- The `install-eSim.sh` file on the `installers` branch does not run at all,
+  because of a syntax error.
+
+After fixing these two, I found 14 more problems. In total I found
+**16 problems** and fixed **15**. The last one needs no code change.
+
+With the fixes, eSim 2.5 installs fully on **Ubuntu 25.04, 25.10 and 26.04**.
+On all three, eSim and NGHDL start, GHDL compiles and runs a VHDL file, and
+ngspice runs a simulation.
+
+## 2. Test setup
+
+| Item | Details |
 | --- | --- |
-| Ubuntu 25.04 (plucky) | clean root filesystem from `debootstrap` (archive.ubuntu.com), run as a Docker container: Python 3.13.3, GCC 14.2, default LLVM 20.1.2, KiCad 8.0.8 in universe |
-| Ubuntu 25.10 (questing) | same method: GCC 15.2, default LLVM 20.1.8, KiCad 9.0.3 in universe |
-| Ubuntu 26.04 LTS (resolute) | same method: GCC 15, default LLVM 21.1, KiCad 9.0.8 in universe |
-| User | normal user `esim` with sudo, `~/Desktop`, `lsb-release`, `unzip`, `wget`, `software-properties-common`, `gio` (as on Ubuntu Desktop) |
-| eSim package | eSim-2.5.zip (96.2 MB, released 03/07/2025, listed for Ubuntu 22.04/23.04/24.04) and the same package rebuilt from Git with `testing/make-package.sh` (eSim tag `v2.5`, NGHDL `master` + NGHDL `installers/Ubuntu`) |
-| Run | `unzip eSim-2.5.zip; cd eSim-2.5; ./install-eSim.sh --install`, answer `n` to the proxy question, keep the full log, repeat in a fresh container after every fix |
+| Ubuntu 25.04 | Clean system, Python 3.13, GCC 14, default LLVM 20, KiCad 8.0.8 in Ubuntu's own repository |
+| Ubuntu 25.10 | Clean system, GCC 15, default LLVM 20, KiCad 9.0.3 in Ubuntu's own repository |
+| Ubuntu 26.04 LTS | Clean system, GCC 15, default LLVM 21, KiCad 9.0.8 in Ubuntu's own repository |
+| User | Normal user with `sudo`, as on a desktop install |
+| eSim package | eSim-2.5.zip from the eSim website (released 3 July 2025), and the same package built from the eSim and NGHDL GitHub repositories |
 
-`testing/build-image.sh` builds the images with `debootstrap` from the Ubuntu
-archive instead of Docker Hub, so the same method works for any release. A
-container is not a full desktop, but the installer only uses apt, pip, sudo and
-the user's home folder, which behave the same. See [testing/](testing/) to
-reproduce every run.
+Each Ubuntu system was made with `debootstrap` and run in Docker, so every
+test started from a fresh system.
 
-## 2. Problems found
+For each test I ran:
 
-In the order the installer reaches them.
+```bash
+unzip eSim-2.5.zip
+cd eSim-2.5
+./install-eSim.sh --install
+```
 
-### Main installer (`install-eSim.sh`)
+I answered `n` to the proxy question and saved the full output. After every
+fix, I ran the whole installation again on a fresh system.
 
-**1. Released zip: "Unsupported Ubuntu version: 25.04 ()"**
+## 3. List of problems
+
+| No. | Problem | Effect | Fixed |
+| --- | --- | --- | --- |
+| 1 | Installer does not know Ubuntu 25.04 | Install stops at the start | Yes |
+| 2 | Syntax error in `install-eSim.sh` (installers branch) | Install stops at the start | Yes |
+| 3 | `apt install` without `-y` | Install stops when run from a script | Yes |
+| 4 | `hdlparse` from PyPI fails on Python 3.13 | Only if the GitHub install fails | No change needed |
+| 5 | KiCad 8 from the PPA cannot be installed on 25.04 | KiCad install fails or mixes versions | Yes |
+| 6 | Second run of the installer skips NGHDL | NGHDL, SKY130 and shortcut missing | Yes |
+| 7 | Launchpad server error 503 | Install stops | Yes |
+| 8 | KiCad symbol table copied to the wrong folder | eSim symbols missing in KiCad | Yes |
+| 9 | KiCad 8 PPA has no packages for 25.10 and 26.04 | Install stops | Yes |
+| 10 | Desktop folder name differs by language | Install stops at the last step | Yes |
+| 11 | `nghdl.zip` contains the old NGHDL installer | Problems 12 to 16 appear | Yes |
+| 12 | `libcanberra-gtk-module` removed from Ubuntu | NGHDL install stops | Yes |
+| 13 | GHDL 4.1.0 does not accept LLVM 20 | NGHDL install stops | Yes |
+| 14 | `clang++` not found | NGHDL install stops | Yes |
+| 15 | ngspice does not compile with GCC 15 | NGHDL install stops on 25.10 and 26.04 | Yes |
+| 16 | Small bugs in the NGHDL script | Uninstall does not remove LLVM | Yes |
+
+## 4. Details of each problem and fix
+
+### Main installer: `install-eSim.sh`
+
+#### Problem 1: Ubuntu 25.04 is not supported
+
+Error:
 
 ```
-$ ./install-eSim.sh --install
 Detected Ubuntu Version:
 Unsupported Ubuntu version: 25.04 ()
 ```
 
-* Cause: the dispatcher in eSim-2.5 only knows 22.04, 23.04 and 24.04. The
-  version regex `\d+\.\d+\.\d+` needs three numbers; `lsb_release -d` on 25.04
-  prints "Ubuntu 25.04", so the detected version is empty.
-* Fix: new dispatcher. 25.04, 25.10 and 26.04 (and, with a warning, any newer
-  release) run `install-eSim-25.04.sh`. Regex accepts 2 or 3 numbers. The
-  dispatcher `cd`s to its own folder (the version scripts use `pwd` as eSim
-  home) and returns the script's exit code.
+Cause:
 
-**2. `installers` branch: syntax error, nothing runs**
+- The installer only knows Ubuntu 22.04, 23.04 and 24.04.
+- It reads the version with the pattern `\d+\.\d+\.\d+`, which needs three
+  numbers (like 22.04.4). Ubuntu 25.04 has only two, so the version is empty.
+
+Fix:
+
+- Ubuntu 25.04, 25.10 and 26.04 now use `install-eSim-25.04.sh`.
+- Newer versions also use it, with a warning.
+- The version pattern now accepts two or three numbers.
+
+#### Problem 2: Syntax error in `install-eSim.sh`
+
+Error:
 
 ```
 ./install-eSim.sh: line 70: syntax error near unexpected token `}'
 ```
 
-* Cause: merge commit `52d77f6` (29 May 2026) mixed the short dispatcher with
-  the old monolithic installer. Its parent `5224460` was already broken:
-  `run_version_script` had no `case` and wrote to an undefined `$config_dir`.
-  Found with `bash -n` on each revision of the file.
-* Fix: the clean dispatcher from fix 1 replaces the file.
+Cause:
 
-### `install-eSim-scripts/install-eSim-25.04.sh`
+- A merge on 29 May 2026 (commit `52d77f6`) mixed two versions of the file.
+- Even the version before it (`5224460`) was broken: the function that picks
+  the script for each Ubuntu version had lost its `case` block.
+- I found this by running `bash -n` on each old version of the file.
 
-**3. `Continue? [Y/n] Abort.`** – `sudo apt install python3-virtualenv` has no
-`-y`; with input not from a terminal (pipes, CI, the proxy answer piped in) apt
-aborts and the installer stops. Fix: `-y`.
+Fix:
 
-**4. hdlparse on Python 3.13** – `pip install hdlparse` (PyPI 1.0.4) fails:
+- I rewrote `install-eSim.sh` as a short, clean script that only detects the
+  Ubuntu version and runs the matching script. This fixes problems 1 and 2.
+
+### Script for Ubuntu 25.04: `install-eSim-scripts/install-eSim-25.04.sh`
+
+#### Problem 3: `apt install` asks for confirmation
+
+Error:
+
+```
+Continue? [Y/n] Abort.
+```
+
+Cause: `sudo apt install python3-virtualenv` has no `-y`. When the input
+does not come from a keyboard, apt stops.
+
+Fix: added `-y`.
+
+#### Problem 4: `hdlparse` does not install from PyPI on Python 3.13
+
+Error (only if the earlier GitHub install fails):
 
 ```
 error in hdlparse setup command: use_2to3 is invalid.
 ```
 
-Only the GitHub fork (`hdl/pyhdlparser`, 1.0.7) installs, so the GitHub line
-must keep running before the PyPI line. No code change; documented.
+Cause: the PyPI version (1.0.4) uses an old setup option that new setuptools
+removed. The GitHub version (1.0.7) installs fine.
 
-**5. KiCad from the PPA cannot be installed on 25.04**
+Fix: no change needed. The script already installs the GitHub version first.
+
+#### Problem 5: KiCad 8 from the PPA cannot be installed on 25.04
+
+Error (without the version pin in the script):
 
 ```
-The following packages have unmet dependencies:
- kicad : Depends: libgit2-1.8 (>= 1.8.0) but it is not installable
+kicad : Depends: libgit2-1.8 (>= 1.8.0) but it is not installable
 ```
 
-* Cause: the `kicad-8.0-releases` PPA build for plucky (`8.0.9-0~ubuntu25.04.1`)
-  was linked against `libgit2-1.8`; Ubuntu 25.04 only has `libgit2-1.9`. The
-  script works around it with `kicad=8.0.8+dfsg-1` (the Ubuntu-archive build),
-  but the pin only covers `kicad`: footprints, symbols and templates still come
-  from the PPA as 8.0.9, giving a mixed installation.
-* Fix: if the Ubuntu archive already provides KiCad 8 (25.04: 8.0.8), do not add
-  the PPA (and remove one left by an earlier run); install all five KiCad
-  packages from one source, no pin.
+Cause:
 
-**6. Re-running the installer silently skips everything after KiCad**
+- The KiCad 8 PPA package for Ubuntu 25.04 needs `libgit2-1.8`.
+  Ubuntu 25.04 only has `libgit2-1.9`.
+- The script avoided this by pinning `kicad=8.0.8+dfsg-1`, which is Ubuntu's
+  own KiCad package. But the pin was only on `kicad`. The other four KiCad
+  packages still came from the PPA as version 8.0.9, so the install had mixed
+  versions.
+
+Fix:
+
+- If Ubuntu's own repository already has KiCad 8 (true for 25.04), the script
+  uses it and does not add the PPA.
+- If an older run added the PPA, the script removes it.
+- All five KiCad packages now come from the same place.
+
+#### Problem 6: Running the installer again skips NGHDL
+
+Output of the second run:
 
 ```
 Installing KiCad...........................
 KiCad 8.0 is already installed.
-INSTALLER_EXIT=0            <- NGHDL, SKY130 and desktop icon never installed
 ```
 
-* Cause: `exit 0` inside `installKicad` ends the whole script. Any second run
-  (normal after a failure) stops here and reports success.
-* Fix: `return 0`.
+The installer then ends with success, but NGHDL, the SKY130 PDK and the
+desktop shortcut are never installed.
 
-**7. Launchpad "503 Service Unavailable" aborts the install**
+Cause: `exit 0` inside the KiCad function stops the whole installer.
+Users often run the installer again after an error, so this is common.
+
+Fix: changed `exit 0` to `return 0`.
+
+#### Problem 7: Launchpad server error 503
+
+Error:
 
 ```
-E: Failed to fetch https://ppa.launchpadcontent.net/.../kicad-symbols_8.0.9~ubuntu25.04.1_all.deb  503  Service Unavailable
+E: Failed to fetch https://ppa.launchpadcontent.net/... 503 Service Unavailable
 ```
 
-Fix: `-o Acquire::Retries=5` on apt update/install; the PPA check retries and
-only treats a definite 404 as "not published".
+Cause: the Launchpad server often answers with error 503, and apt does not
+try again by default.
 
-**8. eSim symbols not visible in KiCad 8** – `sym-lib-table` was copied to
-`~/.config/kicad/6.0`; KiCad 8 reads `~/.config/kicad/8.0`. Fix: use the
-installed KiCad major version (`dpkg-query`).
+Fix: apt now tries up to 5 times (`-o Acquire::Retries=5`). The PPA check
+also tries again and only treats "404 Not Found" as "not available".
 
-**9. 25.10 / 26.04: "does not have a Release file"**
+#### Problem 8: eSim symbols missing in KiCad 8
+
+Cause: the symbol table was copied to `~/.config/kicad/6.0`. KiCad 8 reads
+`~/.config/kicad/8.0`.
+
+Fix: the script reads the installed KiCad version and copies the file to the
+matching folder.
+
+#### Problem 9: KiCad 8 PPA does not exist for 25.10 and 26.04
+
+Error:
 
 ```
 E: The repository 'https://ppa.launchpadcontent.net/kicad/kicad-8.0-releases/ubuntu questing Release' does not have a Release file.
 ```
 
-* Cause: the KiCad 8 PPA publishes builds up to plucky (25.04) only.
-* Fix: check the PPA first; if it has no build (or Launchpad cannot be reached,
-  or `apt-get update` fails after adding it) remove it and install KiCad from
-  the Ubuntu archive with a warning (KiCad 9 on 25.10/26.04).
+Cause: the KiCad 8 PPA only has packages up to Ubuntu 25.04.
 
-**10. Desktop shortcut on non-English desktops** – `cp esim.desktop
-$HOME/Desktop/` fails at the last step when the folder is localised
-("Escritorio", "Schreibtisch"). Fix: `xdg-user-dir DESKTOP`, create if missing.
+Fix:
 
-**11. Old NGHDL installer inside `nghdl.zip`** – the official eSim-2.5 zip
-carries the NGHDL installer that fails with problems 12–15. Fix:
-`installNghdl` copies `install-eSim-scripts/nghdl/install-nghdl.sh` over the
-unzipped one, so the official zip works without being rebuilt.
+- The script checks the PPA before adding it.
+- If the PPA has no packages for this Ubuntu version, or `apt update` fails
+  after adding it, the script removes it again.
+- It then installs KiCad from Ubuntu's own repository (KiCad 9 on 25.10 and
+  26.04) and prints a warning.
 
-### NGHDL installer (`install-eSim-scripts/nghdl/install-nghdl.sh`)
+#### Problem 10: Desktop folder name differs by language
 
-**12. `libcanberra-gtk-module` removed**
+Cause: the script copies the shortcut to `$HOME/Desktop`. On a German or
+Spanish desktop this folder has another name, so the copy fails at the very
+last step.
+
+Fix: the script asks the system for the real folder name with
+`xdg-user-dir DESKTOP`, and creates the folder if it is missing.
+
+#### Problem 11: `nghdl.zip` contains the old NGHDL installer
+
+Cause: the official eSim-2.5.zip contains `nghdl.zip`, and the NGHDL
+installer inside it has problems 12 to 16.
+
+Fix: after unzipping `nghdl.zip`, the eSim script replaces its
+`install-nghdl.sh` with the fixed copy in `install-eSim-scripts/nghdl/`.
+So the official zip works without being rebuilt.
+
+### NGHDL installer: `install-eSim-scripts/nghdl/install-nghdl.sh`
+
+#### Problem 12: `libcanberra-gtk-module` removed
+
+Error:
 
 ```
 Error: Package 'libcanberra-gtk-module' has no installation candidate
 ```
 
-Fix: install `libcanberra-gtk3-module`; the GTK2 module only if apt still has it.
+Cause: Ubuntu 25.04 removed this GTK2 package.
 
-**13. GHDL 4.1.0 refuses LLVM 20**
+Fix: install `libcanberra-gtk3-module`. Install the GTK2 package only if it
+is still available.
+
+#### Problem 13: GHDL 4.1.0 does not accept LLVM 20
+
+Error:
 
 ```
 Unhandled version llvm 20.1.2
 ```
 
-* Cause: GHDL 4.1.0 `configure` accepts LLVM 3.5–18.1. The default `llvm` is
-  20 on 25.04/25.10 and 21 on 26.04. `llvm-18` is still in universe on all three.
-* Fix: install the newest `llvm-N`, `llvm-N-dev`, `clang-N` with N ≤ 18 and run
-  `./configure --with-llvm-config=/usr/bin/llvm-config-18`. The old step that
-  removed the `llvm` meta package is dropped.
+Cause: GHDL 4.1.0 works with LLVM versions 3.5 to 18. The default LLVM is
+version 20 on Ubuntu 25.04 and 25.10, and version 21 on 26.04. LLVM 18 is
+still available on all three.
 
-**14. `clang++: not found`** (appears after fix 13)
+Fix: the script installs the newest LLVM that is 18 or lower
+(`llvm-18`, `llvm-18-dev`, `clang-18`) and builds GHDL with
+`--with-llvm-config=/usr/bin/llvm-config-18`. The old step that removed the
+`llvm` package is no longer needed.
+
+#### Problem 14: `clang++` not found
+
+Error (seen after fixing problem 13):
 
 ```
-clang++ -c `/usr/bin/llvm-config-18 --cxxflags` ... llvm-cbindings.cpp
 /bin/sh: 1: clang++: not found
 ```
 
-GHDL's `configure` defaults to `CXX=clang++`, but `clang-18` installs
-`clang++-18`. Fix: `./configure ... CXX=clang++-18`.
+Cause: GHDL uses `clang++` by default, but the `clang-18` package only
+installs `clang++-18`.
 
-**15. ngspice does not compile with GCC 15 (25.10, 26.04)**
+Fix: the script passes `CXX=clang++-18` to GHDL's `configure`.
+
+#### Problem 15: ngspice does not compile with GCC 15
+
+Error (Ubuntu 25.10 and 26.04):
 
 ```
 src/include/ngspice/bool.h:6:13: error: 'bool' cannot be defined via 'typedef'
 note: 'bool' is a keyword with '-std=c23' onwards
 ```
 
-GCC 15 defaults to C23. Fix: configure ngspice with `CC="gcc -std=gnu17"`
-(the GCC 14 default, so 25.04 builds are unchanged).
+Cause: GCC 15 uses the C23 standard by default. In C23, `bool` is a keyword,
+so the old ngspice code no longer compiles.
 
-**16. Smaller NGHDL script bugs** – `libncurses5-dev` is only a virtual package
-now (use `libncurses-dev`); `else [[ ... ]]` should be `elif`; `--uninstall`
-purged `llvm-${llvm_version}` without ever setting it (now saved in
-`~/.nghdl/config.ini`).
+Fix: ngspice is built with `CC="gcc -std=gnu17"`. This is the default of
+GCC 14, so nothing changes on Ubuntu 25.04.
 
-Problems 12 and 13 are also described in the existing `Ubuntu/REPORT.md`, but
-the matching NGHDL change was never committed to `FOSSEE/nghdl`; the fix there
-also hard-coded `llvm-config-18`, which would miss problem 14.
+#### Problem 16: Small bugs in the NGHDL script
 
-## 3. Files changed
+- `libncurses5-dev` is now only an alias; the script uses `libncurses-dev`.
+- `else [[ ... ]]` was written where `elif` was meant.
+- `--uninstall` tried to remove `llvm-${llvm_version}`, but this variable was
+  never set. The LLVM version is now saved in `~/.nghdl/config.ini` and read
+  back during uninstall.
 
-| File | Change |
-| --- | --- |
-| `Ubuntu/install-eSim.sh` | rewritten dispatcher (problems 1, 2) |
-| `Ubuntu/install-eSim-scripts/install-eSim-25.04.sh` | problems 3, 5–11 |
-| `Ubuntu/install-eSim-scripts/nghdl/install-nghdl.sh` | fixed NGHDL installer (problems 12–16) |
-| `Ubuntu/install-eSim-scripts/nghdl/install-nghdl-ubuntu-25.04.patch` | same change as a patch for `FOSSEE/nghdl` `installers` |
-| `Ubuntu/testing/` | debootstrap image builder, package builder, install runner, smoke test |
-| `Ubuntu/README.md` | how to use the fixed scripts with the official zip |
+Note: problems 12 and 13 are also mentioned in the older `Ubuntu/REPORT.md`,
+but that fix was never added to the NGHDL repository. It also used
+`llvm-config-18` without the matching `clang++-18`, so problem 14 would still
+appear.
 
-## 4. Verification
+## 5. Files changed
 
-Every row is a fresh container. "Fork scripts" = the official package layout
-with this branch's `install-eSim.sh` and `install-eSim-scripts/` copied in,
-installer answered only with `n` (no proxy).
+| File | What changed | Problems |
+| --- | --- | --- |
+| `Ubuntu/install-eSim.sh` | Rewritten | 1, 2 |
+| `Ubuntu/install-eSim-scripts/install-eSim-25.04.sh` | KiCad, apt, desktop and NGHDL changes | 3, 5 to 11 |
+| `Ubuntu/install-eSim-scripts/nghdl/install-nghdl.sh` | Fixed NGHDL installer | 12 to 16 |
+| `Ubuntu/install-eSim-scripts/nghdl/install-nghdl-ubuntu-25.04.patch` | Same NGHDL fix as a patch for the FOSSEE/nghdl repository | 12 to 16 |
+| `Ubuntu/testing/` | Scripts to repeat all tests | – |
+| `Ubuntu/README.md` | How to use the fixed scripts | – |
 
-| Check | Ubuntu 25.04 | Ubuntu 25.10 | Ubuntu 26.04 LTS |
-| --- | --- | --- | --- |
-| Released zip, unchanged | fails: unsupported version | fails: unsupported version | fails: unsupported version |
-| `installers` branch, unchanged | fails: syntax error | fails: syntax error | fails: syntax error |
-| Fork scripts | `eSim Installed Successfully`, exit 0 | `eSim Installed Successfully`, exit 0 | `eSim Installed Successfully`, exit 0 |
-| KiCad | 8.0.8 (archive) | 9.0.3 (archive, warning) | 9.0.8 (archive, warning) |
-| GHDL 4.1.0 + LLVM 18: compile and run a VHDL test | pass | pass | pass |
-| Verilator 4.210 | builds | builds | builds |
-| ngspice batch run (1 V over 1 kΩ → 1 mA) | pass | pass | pass |
-| eSim GUI starts (Qt offscreen, 25 s, no traceback) | pass | pass | pass |
-| NGHDL GUI starts | pass | pass | pass |
-| eSim symbol libraries / `sym-lib-table` location | 15 / `~/.config/kicad/8.0` | 15 / `~/.config/kicad/9.0` | 15 / `~/.config/kicad/9.0` |
-
-Re-running the old 25.04 script on an installed system reproduced problem 6
-(stopped at "KiCad 8.0 is already installed.", exit 0). The official package's
-NGHDL builds ngspice 35; NGHDL `master` (ngspice 45.2) was also built on 25.04
-with the same fixes.
-
-Test-sandbox note: GitHub tarball downloads were blocked in the test sandbox,
-so `pip3 install https://github.com/hdl/pyhdlparser/tarball/master` was run as
-the equivalent `git+https://github.com/hdl/pyhdlparser`. The scripts keep the
-original URL.
-
-## 5. Remaining issues
-
-* **KiCad 9 on 25.10/26.04.** No KiCad 8 build exists for these releases, so
-  the installer uses the archive's KiCad 9 and warns. KiCad 9 reads eSim's
-  KiCad-8 symbol libraries and projects, but eSim 2.5 is only validated with
-  KiCad 8; eSim's schematic-to-netlist flow should be checked by hand.
-* **PPA build for 25.04 is broken upstream** (libgit2-1.8). Worth reporting to
-  the KiCad PPA maintainers; the installer no longer depends on it.
-* **GHDL 4.1.0 needs LLVM ≤ 18.** Fine through 26.04. When `llvm-18` leaves the
-  archive, move NGHDL to GHDL 5.x (Ubuntu ships `ghdl-llvm` 5.0.1).
-* **Upstream NGHDL.** The fixed NGHDL installer should also go to
-  `FOSSEE/nghdl` (`installers` branch) and into the next `nghdl.zip`.
-* **Not covered:** a graphical desktop session (tested with Qt's offscreen
-  platform), Ubuntu flavours, ARM64.
-
-## 6. How to reproduce
+### How to use the fix with the official eSim-2.5.zip
 
 ```bash
-cd Ubuntu/testing
-sudo ./build-image.sh plucky 25.04                 # clean Ubuntu 25.04 image
-./make-package.sh /tmp/pkg <eSim clone> <nghdl clone>
+unzip eSim-2.5.zip
+cd eSim-2.5
+cp /path/to/this/repo/Ubuntu/install-eSim.sh .
+cp -r /path/to/this/repo/Ubuntu/install-eSim-scripts .
+./install-eSim.sh --install
+```
+
+## 6. Results after the fixes
+
+Every test below was run on a fresh system.
+
+| Test | Ubuntu 25.04 | Ubuntu 25.10 | Ubuntu 26.04 |
+| --- | --- | --- | --- |
+| Official zip, no changes | Fails (version not supported) | Fails | Fails |
+| installers branch, no changes | Fails (syntax error) | Fails | Fails |
+| With the fixed scripts | **Installs fully** | **Installs fully** | **Installs fully** |
+| KiCad version installed | 8.0.8 | 9.0.3 (with warning) | 9.0.8 (with warning) |
+| GHDL compiles and runs a VHDL file | Pass | Pass | Pass |
+| Verilator builds | Pass | Pass | Pass |
+| ngspice simulation (1 V across 1 kΩ gives 1 mA) | Pass | Pass | Pass |
+| eSim window starts without errors | Pass | Pass | Pass |
+| NGHDL window starts without errors | Pass | Pass | Pass |
+| eSim symbols copied to KiCad's folder | Pass (8.0) | Pass (9.0) | Pass (9.0) |
+
+I also ran the old 25.04 script a second time on an installed system. It
+stopped after "KiCad 8.0 is already installed.", which confirms problem 6.
+
+Short log extracts are in
+[testing/logs/install-log-excerpts.md](testing/logs/install-log-excerpts.md).
+
+## 7. Open points
+
+- **KiCad 9 on 25.10 and 26.04.** KiCad 8 is not available for these
+  versions. KiCad 9 opens KiCad 8 files, but eSim 2.5 was only tested by the
+  eSim team with KiCad 8, so the full schematic-to-simulation flow should be
+  checked on a real desktop.
+- **KiCad 8 PPA package for 25.04 is broken** (it needs `libgit2-1.8`). This
+  should be reported to the KiCad PPA team.
+- **GHDL 4.1.0 needs LLVM 18 or lower.** This works up to Ubuntu 26.04. When
+  LLVM 18 is removed from Ubuntu, NGHDL should move to GHDL 5.
+- **NGHDL repository.** The fixed NGHDL installer should also be added to the
+  FOSSEE/nghdl repository. The patch file in this branch applies cleanly.
+- **Not tested:** a real desktop session (the windows were tested without a
+  screen), other Ubuntu flavours, and ARM64 computers.
+- **Test environment note:** my test machine could not download GitHub
+  tarballs, so the `hdlparse` install was run with the `git+https://` form of
+  the same address. The scripts keep the original address.
+
+## 8. How to repeat the tests
+
+```bash
+git clone -b installers https://github.com/Mahim56207/eSim.git
+cd eSim/Ubuntu/testing
+
+# 1. Make a clean Ubuntu 25.04 image
+sudo ./build-image.sh plucky 25.04
+
+# 2. Build the eSim-2.5 package from the eSim and NGHDL repositories
+./make-package.sh /tmp/pkg /path/to/FOSSEE-eSim /path/to/FOSSEE-nghdl
+
+# 3. Install it and run the checks
 ./run-install.sh esim-base:25.04 /tmp/pkg/eSim-2.5.zip install-25.04.log
 ```
 
-## References
+Use `questing 25.10` or `resolute 26.04` in step 1 for the other versions.
 
-* eSim downloads: https://esim.fossee.in/downloads
-* eSim installers branch: https://github.com/FOSSEE/eSim/tree/installers
-* NGHDL installers branch: https://github.com/FOSSEE/nghdl/tree/installers
-* KiCad 8 PPA: https://launchpad.net/~kicad/+archive/ubuntu/kicad-8.0-releases
-* GHDL: https://github.com/ghdl/ghdl
-* GCC 15 C23 default: https://gcc.gnu.org/gcc-15/porting_to.html
+## 9. References
+
+- eSim downloads: https://esim.fossee.in/downloads
+- eSim installers branch: https://github.com/FOSSEE/eSim/tree/installers
+- NGHDL installers branch: https://github.com/FOSSEE/nghdl/tree/installers
+- KiCad 8 PPA: https://launchpad.net/~kicad/+archive/ubuntu/kicad-8.0-releases
+- GHDL: https://github.com/ghdl/ghdl
+- GCC 15 changes (C23 default): https://gcc.gnu.org/gcc-15/porting_to.html
