@@ -35,3 +35,22 @@ It contains the documentation to package eSim for Ubuntu OS.
 6. Compress `kicadLibrary` folder to a `tar.xz` format and then remove that folder.
 
 7. Compress `eSim-<version>` to a zip format for distribution.
+
+
+## Ubuntu 25.04, 25.10 and 26.04
+
+`install-eSim.sh` runs `install-eSim-scripts/install-eSim-25.04.sh` on Ubuntu
+25.04 and every newer release. That script uses the updated NGHDL installer in
+`install-eSim-scripts/nghdl/` (see its [README](install-eSim-scripts/nghdl/README.md)),
+so the official `eSim-2.5.zip` installs after replacing its `install-eSim.sh`
+and `install-eSim-scripts/` with the ones from this branch:
+
+```bash
+unzip eSim-2.5.zip && cd eSim-2.5
+cp /path/to/this/branch/Ubuntu/install-eSim.sh .
+cp -r /path/to/this/branch/Ubuntu/install-eSim-scripts .
+./install-eSim.sh --install
+```
+
+Problems found and fixed: [REPORT-Ubuntu-25.04-and-above.md](REPORT-Ubuntu-25.04-and-above.md).
+Reproducible test setup (Docker + debootstrap): [testing/](testing/).

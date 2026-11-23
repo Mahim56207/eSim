@@ -1,0 +1,22 @@
+== versions
+Ubuntu 26.04 LTS
+** ngspice-35 : Circuit level simulation program
+GHDL 4.1.0 (tarball) [Dunoon edition]
+Verilator 4.210 2021-07-07 rev v4.204-73-g8e2ba6a00
+9.0.8
+== files
+/home/esim/.esim/config.ini
+/home/esim/.nghdl/config.ini
+/usr/bin/esim
+/usr/local/bin/nghdl
+/usr/share/local/sky130_fd_pr
+9.0
+15
+== GHDL+LLVM compile test
+t.vhd:2:44:@0ms:(report note): ghdl-ok
+== ngspice batch test
+i(v1) = -1.00000e-03
+== eSim GUI start (offscreen, 25 s)
+rc=124 (124 = still running after 25 s = OK)
+== NGHDL GUI start (offscreen, 10 s)
+rc=124
