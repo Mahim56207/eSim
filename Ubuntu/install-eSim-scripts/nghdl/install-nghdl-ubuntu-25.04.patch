@@ -1,0 +1,176 @@
+--- a/Ubuntu/install-nghdl.sh
++++ b/Ubuntu/install-nghdl.sh
+@@ -17,7 +17,7 @@
+ #       INTERNS: Akshay Rukade, Haripriyan R
+ #  ORGANIZATION: eSim, FOSSEE group at IIT Bombay
+ #       CREATED: Tuesday 02 December 2014 17:01
+-#      REVISION: Tuesday 31 December 2024 21:38
++#      REVISION: Monday 23 November 2026 (Ubuntu 25.04+ fixes: LLVM <= 18, canberra)
+ #==========================================================
+ 
+ nghdl="nghdl-simulator"
+@@ -27,6 +27,11 @@
+ config_file="config.ini"
+ src_dir=`pwd`
+ 
++# GHDL 4.1.0's configure script only accepts LLVM up to 18.1
++# (newer Ubuntu releases ship LLVM 20/21/22 as the default "llvm" package)
++ghdl_max_llvm=18
++llvm_version=""
++
+ # Will be used to take backup of any file
+ sysdate="$(date)"
+ timestamp=`echo $sysdate|awk '{print $3"_"$2"_"$6"_"$4 }'`
+@@ -40,9 +45,35 @@
+ }
+ 
+ 
++# Return 0 if apt has an installation candidate for package $1
++function aptHasCandidate
++{
++    local candidate
++    candidate=$(apt-cache policy "$1" 2>/dev/null | awk '/Candidate:/ {print $2}')
++    [[ -n "$candidate" && "$candidate" != "(none)" ]]
++}
++
++
++# Pick the newest LLVM version (<= ghdl_max_llvm) available from apt
++function selectLLVMVersion
++{
++    local v
++    for (( v=ghdl_max_llvm; v>=10; v-- )); do
++        if aptHasCandidate "llvm-$v-dev"; then
++            llvm_version=$v
++            return 0
++        fi
++    done
++    return 1
++}
++
++
+ function installDependency
+ {
+ 
++    # Refresh package index first, so that version checks below are correct
++    sudo apt-get update
++
+     echo "Installing dependencies for $ghdl LLVM................"
+ 
+     echo "Installing Make..........................................."
+@@ -51,22 +82,31 @@
+     echo "Installing GNAT..........................................."
+     sudo apt install -y gnat
+     
+-    # It will remove older versions of llvm if any 
+-    echo "Removing older LLVM........................................"
+-    sudo apt remove -y llvm llvm-dev
+-
+-    echo "Installing LLVM........................................"
+-    sudo apt install -y llvm llvm-dev
++    # Ubuntu 25.04+ ships LLVM 20 (or newer) as the default "llvm" package,
++    # which GHDL 4.1.0 refuses ("Unhandled version llvm 20.1.2").
++    # Install a versioned LLVM that GHDL supports instead.
++    if ! selectLLVMVersion; then
++        echo "ERROR: No LLVM version <= $ghdl_max_llvm is available from apt."
++        echo "GHDL 4.1.0 cannot be built with the LLVM backend on this system."
++        return 1
++    fi
++    echo "Installing LLVM $llvm_version (newest version supported by $ghdl)..."
++    sudo apt install -y llvm-$llvm_version llvm-$llvm_version-dev
+ 
+-    echo "Installing Clang.........................................."
+-    sudo apt install -y clang
++    echo "Installing Clang $llvm_version.........................................."
++    sudo apt install -y clang-$llvm_version
+ 
+     echo "Installing Zlib1g-dev....................................."
+     sudo apt install -y zlib1g-dev
+   
+     # Specific dependency for canberra-gtk modules
++    # libcanberra-gtk-module (GTK2) was dropped in Ubuntu 25.04;
++    # install it only where it still exists
+     echo "Installing Gtk Canberra modules..........................."
+-    sudo apt install -y libcanberra-gtk-module libcanberra-gtk3-module
++    sudo apt install -y libcanberra-gtk3-module
++    if aptHasCandidate libcanberra-gtk-module; then
++        sudo apt install -y libcanberra-gtk-module
++    fi
+ 
+     # Specific dependency for nvidia graphic cards
+     echo "Installing graphics dependency for Ngspice source build"
+@@ -82,7 +122,7 @@
+     then
+     # Ubuntu
+         sudo apt install -y make autoconf g++ flex bison
+-    else [[ -n "$(which yum 2> /dev/null)" ]]
++    elif [[ -n "$(which yum 2> /dev/null)" ]]; then
+     # Ubuntu
+         sudo yum install make autoconf flex bison which -y
+         sudo yum groupinstall 'Development Tools'  -y
+@@ -99,7 +139,7 @@
+         flex \
+         bison \
+         libreadline-dev \
+-        libncurses5-dev \
++        libncurses-dev \
+         libxaw7 \
+         libxaw7-dev \
+         libx11-dev
+@@ -119,7 +159,10 @@
+     echo "Configuring $ghdl build as per requirements"
+     chmod +x configure
+     # Other configure flags can be found at - https://github.com/ghdl/ghdl/blob/master/configure
+-    ./configure --with-llvm-config=/usr/bin/llvm-config
++    # Use the versioned clang++ that matches the selected LLVM
++    # (plain "clang++" is not installed with clang-$llvm_version)
++    ./configure --with-llvm-config=/usr/bin/llvm-config-$llvm_version \
++        CXX=clang++-$llvm_version
+     echo "Building the install file for $ghdl LLVM"
+     make -j$(nproc)
+     sudo make install
+@@ -190,7 +233,10 @@
+     sleep 2
+     
+     chmod +x ../configure
+-    ../configure \
++    # GCC 15 (Ubuntu 25.10+) defaults to C23, where "bool" is a keyword:
++    #   bool.h: error: 'bool' cannot be defined via 'typedef'
++    # Build ngspice as GNU C17 (the GCC 14 default) on every release.
++    ../configure CC="gcc -std=gnu17" \
+         --enable-osdi \
+         --enable-xspice \
+         --enable-openmp \
+@@ -246,6 +292,8 @@
+     echo "[SRC]" >> $config_dir/$config_file
+     echo "SRC_HOME = $src_dir" >> $config_dir/$config_file
+     echo "LICENSE = %(SRC_HOME)s/LICENSE" >> $config_dir/$config_file
++    echo "[BUILD]" >> $config_dir/$config_file
++    echo "LLVM_VERSION = $llvm_version" >> $config_dir/$config_file
+ 
+ }
+ 
+@@ -307,6 +355,11 @@
+     createSoftLink
+ 
+ elif [ $option == "--uninstall" ];then
++    # Read the LLVM version used at install time (needed for purge below)
++    if [ -f $config_dir/$config_file ]; then
++        llvm_version=$(awk -F' = ' '/^LLVM_VERSION/ {print $2}' $config_dir/$config_file)
++    fi
++
+     sudo rm -rf $HOME/$nghdl $HOME/.nghdl /usr/share/kicad/library/eSim_Nghdl.lib /usr/local/bin/nghdl /usr/bin/ngspice
+ 
+     echo "Removing GHDL......................"
+@@ -324,8 +377,10 @@
+ 
+     echo "Removing libxaw7-dev..............."
+     sudo apt purge -y libxaw7-dev
+-    echo "Removing LLVM......................"
+-    sudo apt-get purge -y llvm-${llvm_version} llvm-${llvm_version}-dev
++    if [ -n "$llvm_version" ]; then
++        echo "Removing LLVM $llvm_version......................"
++        sudo apt-get purge -y llvm-${llvm_version} llvm-${llvm_version}-dev clang-${llvm_version}
++    fi
+     echo "Removing GNAT......................"
+     sudo apt purge -y gnat
+ else 
