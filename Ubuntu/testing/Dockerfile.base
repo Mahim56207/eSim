@@ -1,0 +1,10 @@
+ARG BASE
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive TZ=Asia/Kolkata
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      sudo lsb-release unzip xz-utils tar rsync wget curl ca-certificates \
+      software-properties-common gnupg libglib2.0-bin python3 locales dbus \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd -m -s /bin/bash esim && echo 'esim ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/esim && mkdir -p /home/esim/Desktop && chown -R esim:esim /home/esim
+USER esim
+WORKDIR /home/esim
